@@ -102,8 +102,8 @@
       </label>
       <label>意地悪さ
         <select id="braid">
-          <option value="0">0 — 完全迷路(壁伝いOK)</option>
-          <option value="0.35" selected>中 — ループ入り</option>
+          <option value="0" selected>0 — 完全迷路(最長経路・おすすめ)</option>
+          <option value="0.35">中 — ループ入り</option>
           <option value="0.6">高 — ループ多め</option>
           <option value="0.85">極 — 罠だらけ</option>
         </select>
@@ -118,6 +118,7 @@
       <button id="regen" class="primary">新しい迷路</button>
       <button id="hint">ヒント (解を表示)</button>
       <button id="print" class="primary">🖨 印刷 / PDF</button>
+      <button id="pngview">PNG表示</button>
       <button id="svg">SVG保存</button>
       <button id="png">PNG保存</button>
     </div>
@@ -421,10 +422,11 @@ function download(blob,name){
 }
 function fname(ext){return `maze-${game.width}x${game.width}-score${game.score}.${ext}`;}
 
-// SVG(白背景) を白地の PNG にラスタライズしてダウンロード
-function exportPNG(){
+// SVG(白背景) を白地の PNG にラスタライズして blob を返す
+function renderPNGBlob(cb){
   const g=game, scale=2, svg=mazeToSVG(g.showHint,{print:true});
-  const c=18, W=(g.width*c+c*2), H=(g.height*c+c*2);
+  const c=18, p=Math.round(c*1.8);  // mazeToSVG と同じ余白
+  const W=g.width*c+p*2, H=g.height*c+p*2;
   const img=new Image();
   img.onload=()=>{
     const cn=document.createElement("canvas");
@@ -432,9 +434,20 @@ function exportPNG(){
     const cx=cn.getContext("2d");
     cx.fillStyle="#ffffff"; cx.fillRect(0,0,cn.width,cn.height);
     cx.drawImage(img,0,0,cn.width,cn.height);
-    cn.toBlob(b=>download(b,fname("png")),"image/png");
+    cn.toBlob(cb,"image/png");
   };
   img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+function exportPNG(){ renderPNGBlob(b=>download(b,fname("png"))); }
+
+// PNG だけを別タブに表示(保存はブラウザの標準機能でどうぞ)
+function viewPNG(){
+  const w=window.open("","_blank");  // ユーザー操作中に開く(ポップアップブロック回避)
+  renderPNGBlob(b=>{
+    const url=URL.createObjectURL(b);
+    if(w && !w.closed) w.location.href=url;  // ブラウザ標準の画像ビューアで表示
+    else download(b,fname("png"));           // ブロック時はダウンロードにフォールバック
+  });
 }
 
 // 印刷用に「問題ページ」と「解答ページ」を組み立てる
@@ -477,6 +490,7 @@ document.getElementById("svg").addEventListener("click",()=>{
 document.getElementById("print").addEventListener("click",()=>{buildPrint(); window.print();});
 addEventListener("beforeprint",buildPrint);
 document.getElementById("png").addEventListener("click",()=>{if(game)exportPNG();});
+document.getElementById("pngview").addEventListener("click",()=>{if(game)viewPNG();});
 
 // スワイプ
 let sx=0,sy=0;
