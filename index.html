@@ -122,6 +122,7 @@
       <div class="chip"><b id="stSteps">0</b><span>steps</span></div>
       <div class="chip"><b id="stSol">–</b><span>最短解</span></div>
       <div class="chip"><b id="stLoops">–</b><span>ループ</span></div>
+      <div class="chip"><b id="stTrap">–</b><span>最長の罠</span></div>
       <div class="chip"><b id="stScore">–</b><span>難易度</span></div>
     </div>
 
@@ -251,16 +252,40 @@ function buildHardest(width,height,braid,candidates,seed){
     const rg=Math.sqrt(rg2/path.length);
     const spread=rg/Math.sqrt(width*width+height*height); // 0..~0.4(大きいほど紙面全体を動く)
 
+    // --- 深い騙し: 正解経路から分岐する行き止まりの深さ ---
+    // 正解経路を始点にした多点BFSで各セルの「経路からの深さ」を求める。
+    // 行き止まり(次数1)の深さ = そこまで探索して無駄になる罠の長さ。
+    const kk=(x,y)=>y*width+x;
+    const dep=new Int32Array(width*height).fill(-1);
+    const bq=new Int32Array(width*height); let bh=0,bt=0;
+    for(const[x,y]of path){const i=kk(x,y); if(dep[i]<0){dep[i]=0; bq[bt++]=i;}}
+    while(bh<bt){
+      const i=bq[bh++], x=i%width, y=(i/width)|0, d=dep[i];
+      for(const[nx,ny]of m.neigh(x,y)){const j=kk(nx,ny);
+        if(dep[j]<0){dep[j]=d+1; bq[bt++]=j;}}
+    }
+    const tips=[];
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      if((x===start[0]&&y===start[1])||(x===goal[0]&&y===goal[1]))continue;
+      if(m.neigh(x,y).length===1){const d=dep[kk(x,y)]; if(d>0)tips.push(d);}
+    }
+    tips.sort((a,b)=>b-a);
+    const maxTrap=tips.length?tips[0]:0;                 // 最長の罠(一撃の絶望)
+    const trapTop=tips.slice(0,4).reduce((a,b)=>a+b,0);  // 長い罠 上位4本(何度も無駄骨)
+
     const score=
         path.length                     // 長い解ほど良い
       + decisions*0.4
       + loops*0.3                        // ループは控えめ(近道を作り解を縮めるため)
       + spread*path.length*3.0           // 大局: 紙面を大きく動く
       + tort*path.length*1.5             // 局所: 単純でない(よく曲がる)
-      - maxRun*2.0;                      // 局所: 長い直線(単純な動き)を減点
+      - maxRun*2.0                       // 局所: 長い直線(単純な動き)を減点
+      + maxTrap*1.5                      // 深い騙し: 最長の無駄探索
+      + trapTop*0.8;                     // 深い騙し: 長い罠が何本もある
     if(!bestMeta||score>bestMeta.score){
       best=m; bestMeta={start,goal,path,loops,spread:Math.round(spread*1000)/1000,
-        maxRun,tort:Math.round(tort*1000)/1000,score:Math.round(score*10)/10,sol:path.length};
+        maxRun,tort:Math.round(tort*1000)/1000,maxTrap,trapTop,
+        score:Math.round(score*10)/10,sol:path.length};
     }
   }
   return{m:best,...bestMeta};
@@ -290,6 +315,7 @@ function newGame(){
           trail:new Set([g.start.join(",")]), showHint:false, done:false, raf:null};
     document.getElementById("stSol").textContent=g.sol;
     document.getElementById("stLoops").textContent=g.loops;
+    document.getElementById("stTrap").textContent=g.maxTrap;
     document.getElementById("stScore").textContent=g.score;
     document.getElementById("stSteps").textContent="0";
     document.getElementById("stTime").textContent="0.0s";
