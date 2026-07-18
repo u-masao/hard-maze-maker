@@ -53,9 +53,34 @@
   kbd{background:#1d2542; border:1px solid var(--line); border-bottom-width:2px; border-radius:5px;
       padding:1px 6px; font-size:.72rem}
   @media (max-width:420px){ .pad{grid-template-columns:repeat(3,56px); grid-template-rows:repeat(3,56px)} }
+
+  /* ---- 印刷レイアウト (白地・黒壁・解答は別ページ) ---- */
+  #printArea{display:none}
+  @media print{
+    :root{color-scheme:light}
+    body{background:#fff; color:#000; padding:0; display:block}
+    body > .wrap, body > h1{display:none !important}
+    #printArea{display:block}
+    .sheet{
+      page-break-after:always; break-after:page;
+      display:flex; flex-direction:column; align-items:center;
+      justify-content:flex-start; min-height:96vh; padding:4vh 4vw 0;
+      text-align:center; color:#000;
+    }
+    .sheet:last-child{page-break-after:auto; break-after:auto}
+    .sheet h2{font-size:20pt; margin:0 0 2mm; letter-spacing:.04em}
+    .sheet .meta{font-size:9pt; color:#333; margin-bottom:4mm}
+    .sheet .meta b{color:#000}
+    .sheet .note{font-size:10pt; color:#333; margin-top:4mm}
+    .sheet svg{width:auto; height:auto; max-width:100%; max-height:82vh}
+    @page{ margin:10mm; }
+  }
 </style>
 </head>
 <body>
+  <!-- 印刷/PDF 用。画面では非表示、印刷時のみ表示される -->
+  <div id="printArea"></div>
+
   <h1>世界一難しい迷路
     <small>壁伝い法も行き止まり潰しも効かない — ループ入り・最長解の意地悪迷路</small>
   </h1>
@@ -65,9 +90,11 @@
       <label>サイズ
         <select id="size">
           <option value="15">15 × 15</option>
-          <option value="21" selected>21 × 21</option>
-          <option value="31">31 × 31</option>
+          <option value="21">21 × 21</option>
+          <option value="31" selected>31 × 31</option>
           <option value="41">41 × 41 (鬼)</option>
+          <option value="51">51 × 51 (地獄)</option>
+          <option value="61">61 × 61 (発狂)</option>
         </select>
       </label>
       <label>意地悪さ
@@ -87,6 +114,7 @@
       </label>
       <button id="regen" class="primary">新しい迷路</button>
       <button id="hint">ヒント (解を表示)</button>
+      <button id="print" class="primary">🖨 印刷 / PDF</button>
       <button id="svg">SVG保存</button>
       <button id="png">PNG保存</button>
     </div>
@@ -317,14 +345,20 @@ function tick(){
 }
 
 // ---- 書き出し (Python 版の to_svg 相当をブラウザで) -----------------------
-function mazeToSVG(withPath){
+function mazeToSVG(withPath, opts){
+  opts=opts||{};
+  const print=opts.print;                     // 印刷用: 白地・黒壁・S/G ラベル
   const g=game, w=g.width, h=g.height, c=18, p=c;
+  const bg=print?"#ffffff":"#0b1021";
+  const wall=print?"#111111":"#e2e8f0";
+  const wallW=print?2.4:2;
   const W=w*c+p*2, H=h*c+p*2, L=[
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
-    `<rect width="${W}" height="${H}" fill="#0b1021"/>`];
+    `<rect width="${W}" height="${H}" fill="${bg}"/>`];
   if(withPath){
     const pts=g.path.map(([x,y])=>`${p+x*c+c/2},${p+y*c+c/2}`).join(" ");
-    L.push(`<polyline points="${pts}" fill="none" stroke="#38bdf8" stroke-width="${(c*.32).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/>`);
+    const pcol=print?"#d11":"#38bdf8", pop=print?0.9:0.55;
+    L.push(`<polyline points="${pts}" fill="none" stroke="${pcol}" stroke-width="${(c*.32).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round" opacity="${pop}"/>`);
   }
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
     const wl=g.m.walls[y][x], px=p+x*c, py=p+y*c, seg=[];
@@ -333,10 +367,19 @@ function mazeToSVG(withPath){
     if(wl&E)seg.push([px+c,py,px+c,py+c]);
     if(wl&W)seg.push([px,py,px,py+c]);
     for(const[x1,y1,x2,y2]of seg)
-      L.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round"/>`);
+      L.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="square"/>`);
   }
-  for(const[[cx,cy],col]of[[g.start,"#22c55e"],[g.goal,"#ef4444"]])
-    L.push(`<circle cx="${p+cx*c+c/2}" cy="${p+cy*c+c/2}" r="${(c*.3).toFixed(1)}" fill="${col}"/>`);
+  if(print){
+    // 白黒印刷でも判別できるよう、丸+太字の S / G を描く
+    for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
+      const mx=p+cx*c+c/2, my=p+cy*c+c/2;
+      L.push(`<circle cx="${mx}" cy="${my}" r="${(c*.36).toFixed(1)}" fill="#fff" stroke="#111" stroke-width="1.6"/>`);
+      L.push(`<text x="${mx}" y="${my}" font-family="sans-serif" font-size="${(c*.6).toFixed(0)}" font-weight="700" fill="#111" text-anchor="middle" dominant-baseline="central">${ch}</text>`);
+    }
+  }else{
+    for(const[[cx,cy],col]of[[g.start,"#22c55e"],[g.goal,"#ef4444"]])
+      L.push(`<circle cx="${p+cx*c+c/2}" cy="${p+cy*c+c/2}" r="${(c*.3).toFixed(1)}" fill="${col}"/>`);
+  }
   L.push("</svg>");
   return L.join("\n");
 }
@@ -346,6 +389,42 @@ function download(blob,name){
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function fname(ext){return `maze-${game.width}x${game.width}-score${game.score}.${ext}`;}
+
+// SVG(白背景) を白地の PNG にラスタライズしてダウンロード
+function exportPNG(){
+  const g=game, scale=2, svg=mazeToSVG(g.showHint,{print:true});
+  const c=18, W=(g.width*c+c*2), H=(g.height*c+c*2);
+  const img=new Image();
+  img.onload=()=>{
+    const cn=document.createElement("canvas");
+    cn.width=W*scale; cn.height=H*scale;
+    const cx=cn.getContext("2d");
+    cx.fillStyle="#ffffff"; cx.fillRect(0,0,cn.width,cn.height);
+    cx.drawImage(img,0,0,cn.width,cn.height);
+    cn.toBlob(b=>download(b,fname("png")),"image/png");
+  };
+  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+
+// 印刷用に「問題ページ」と「解答ページ」を組み立てる
+function buildPrint(){
+  if(!game)return;
+  const g=game;
+  const meta=`サイズ <b>${g.width}×${g.width}</b> ・ 最短解 <b>${g.sol}</b>歩 ・ `
+    +`ループ <b>${g.loops}</b> ・ 難易度 <b>${g.score}</b>`;
+  document.getElementById("printArea").innerHTML=
+    `<section class="sheet">
+       <h2>世界一難しい迷路</h2>
+       <div class="meta">${meta}</div>
+       ${mazeToSVG(false,{print:true})}
+       <div class="note">S から G まで、鉛筆で一筆書き。壁伝い法は通じません。</div>
+     </section>
+     <section class="sheet">
+       <h2>解答</h2>
+       <div class="meta">${meta}</div>
+       ${mazeToSVG(true,{print:true})}
+     </section>`;
+}
 
 // ---- 入力 ----------------------------------------------------------------
 const KEYMAP={ArrowUp:N,ArrowDown:S,ArrowRight:E,ArrowLeft:W,
@@ -361,13 +440,12 @@ document.getElementById("hint").addEventListener("click",()=>{
 ["size","braid","cand"].forEach(id=>
   document.getElementById(id).addEventListener("change",newGame));
 document.getElementById("svg").addEventListener("click",()=>{
-  if(!game)return;
-  download(new Blob([mazeToSVG(game.showHint)],{type:"image/svg+xml"}),fname("svg"));
+  if(!game)return;  // 白背景でインク節約
+  download(new Blob([mazeToSVG(game.showHint,{print:true})],{type:"image/svg+xml"}),fname("svg"));
 });
-document.getElementById("png").addEventListener("click",()=>{
-  if(!game)return;
-  cv.toBlob(b=>download(b,fname("png")),"image/png");
-});
+document.getElementById("print").addEventListener("click",()=>{buildPrint(); window.print();});
+addEventListener("beforeprint",buildPrint);
+document.getElementById("png").addEventListener("click",()=>{if(game)exportPNG();});
 
 // スワイプ
 let sx=0,sy=0;
