@@ -87,6 +87,8 @@
       </label>
       <button id="regen" class="primary">新しい迷路</button>
       <button id="hint">ヒント (解を表示)</button>
+      <button id="svg">SVG保存</button>
+      <button id="png">PNG保存</button>
     </div>
 
     <div class="stats">
@@ -314,6 +316,37 @@ function tick(){
   g.raf=requestAnimationFrame(tick);
 }
 
+// ---- 書き出し (Python 版の to_svg 相当をブラウザで) -----------------------
+function mazeToSVG(withPath){
+  const g=game, w=g.width, h=g.height, c=18, p=c;
+  const W=w*c+p*2, H=h*c+p*2, L=[
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<rect width="${W}" height="${H}" fill="#0b1021"/>`];
+  if(withPath){
+    const pts=g.path.map(([x,y])=>`${p+x*c+c/2},${p+y*c+c/2}`).join(" ");
+    L.push(`<polyline points="${pts}" fill="none" stroke="#38bdf8" stroke-width="${(c*.32).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/>`);
+  }
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const wl=g.m.walls[y][x], px=p+x*c, py=p+y*c, seg=[];
+    if(wl&N)seg.push([px,py,px+c,py]);
+    if(wl&S)seg.push([px,py+c,px+c,py+c]);
+    if(wl&E)seg.push([px+c,py,px+c,py+c]);
+    if(wl&W)seg.push([px,py,px,py+c]);
+    for(const[x1,y1,x2,y2]of seg)
+      L.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round"/>`);
+  }
+  for(const[[cx,cy],col]of[[g.start,"#22c55e"],[g.goal,"#ef4444"]])
+    L.push(`<circle cx="${p+cx*c+c/2}" cy="${p+cy*c+c/2}" r="${(c*.3).toFixed(1)}" fill="${col}"/>`);
+  L.push("</svg>");
+  return L.join("\n");
+}
+function download(blob,name){
+  const url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function fname(ext){return `maze-${game.width}x${game.width}-score${game.score}.${ext}`;}
+
 // ---- 入力 ----------------------------------------------------------------
 const KEYMAP={ArrowUp:N,ArrowDown:S,ArrowRight:E,ArrowLeft:W,
   w:N,s:S,d:E,a:W,W:N,S:S,D:E,A:W,k:N,j:S,l:E,h:W};
@@ -327,6 +360,14 @@ document.getElementById("hint").addEventListener("click",()=>{
 });
 ["size","braid","cand"].forEach(id=>
   document.getElementById(id).addEventListener("change",newGame));
+document.getElementById("svg").addEventListener("click",()=>{
+  if(!game)return;
+  download(new Blob([mazeToSVG(game.showHint)],{type:"image/svg+xml"}),fname("svg"));
+});
+document.getElementById("png").addEventListener("click",()=>{
+  if(!game)return;
+  cv.toBlob(b=>download(b,fname("png")),"image/png");
+});
 
 // スワイプ
 let sx=0,sy=0;
