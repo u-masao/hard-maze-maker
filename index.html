@@ -54,17 +54,17 @@
       padding:1px 6px; font-size:.72rem}
   @media (max-width:420px){ .pad{grid-template-columns:repeat(3,56px); grid-template-rows:repeat(3,56px)} }
 
-  /* ---- 印刷レイアウト (A4 縦・全面。問題/解答の2ページ) ---- */
+  /* ---- 印刷レイアウト (用紙サイズは指定せずブラウザ任せ。問題/解答の2ページ) ---- */
   #printArea{display:none}
   @media print{
     :root{color-scheme:light}
-    @page{ size:A4 portrait; margin:0; }
+    @page{ margin:10mm; }               /* サイズ指定なし=プリンタ既定の用紙に合わせる */
     body{background:#fff; color:#000; padding:0; display:block}
     body > .wrap, body > h1{display:none !important}
     #printArea{display:block}
-    .sheet{ page-break-after:always; break-after:page; }
+    .sheet{ page-break-after:always; break-after:page; text-align:center; }
     .sheet:last-child{ page-break-after:auto; break-after:auto }
-    .sheet svg{ display:block; width:210mm; height:297mm; }
+    .sheet svg{ display:block; width:auto; height:auto; max-width:100%; max-height:96vh; margin:0 auto; }
   }
 </style>
 </head>
@@ -80,17 +80,17 @@
     <div class="bar">
       <label>サイズ
         <select id="size">
-          <option value="15">15 × 15</option>
-          <option value="21">21 × 21</option>
-          <option value="31" selected>31 × 31</option>
-          <option value="41">41 × 41 (鬼)</option>
-          <option value="51">51 × 51 (地獄)</option>
-          <option value="61">61 × 61 (発狂)</option>
-          <option value="81">81 × 81 (無理)</option>
-          <option value="101">101 × 101 (絶望)</option>
-          <option value="131">131 × 131 (終焉)</option>
-          <option value="151">151 × 151 (虚無)</option>
-          <option value="201">201 × 201 (無間)</option>
+          <option value="15">15 × 22</option>
+          <option value="21">21 × 31</option>
+          <option value="31" selected>31 × 46</option>
+          <option value="41">41 × 61 (鬼)</option>
+          <option value="51">51 × 76 (地獄)</option>
+          <option value="61">61 × 91 (発狂)</option>
+          <option value="81">81 × 121 (無理)</option>
+          <option value="101">101 × 151 (絶望)</option>
+          <option value="131">131 × 196 (終焉)</option>
+          <option value="151">151 × 226 (虚無)</option>
+          <option value="201">201 × 301 (無間)</option>
         </select>
       </label>
       <label>意地悪さ
@@ -302,7 +302,7 @@ let game=null, cell=0, pad=0;
 
 function newGame(){
   const width=+document.getElementById("size").value;
-  const height=width;
+  const height=Math.floor(width*1.5);       // アスペクト比 1.5 の縦長迷路
   const braid=+document.getElementById("braid").value;
   const candidates=+document.getElementById("cand").value;
   const seed=(Math.random()*2**32)>>>0;
@@ -325,16 +325,19 @@ function newGame(){
   // 大きい迷路は生成に時間がかかるので「生成中…」を先に描画してから作る
   if(width>=61){
     const note=eff<candidates?`（候補${eff}から選抜）`:"";
-    document.getElementById("msg").textContent=`${width}×${width} を生成中… 🌀${note}`;
+    document.getElementById("msg").textContent=`${width}×${height} を生成中… 🌀${note}`;
     setTimeout(build,20);
   }else build();
 }
 
 function layout(){
-  const size=Math.min(600, Math.floor((document.querySelector(".board").clientWidth-20)));
-  if(size<=0)return;                      // 盤面が非表示(印刷中など)のときは触らない
-  const px=size; cv.width=px; cv.height=px;
-  cell=(px-2)/game.width; pad=1;
+  const availW=Math.min(560, Math.floor((document.querySelector(".board").clientWidth-20)));
+  if(availW<=0)return;                     // 盤面が非表示(印刷中など)のときは触らない
+  const g=game;
+  cell=(availW-2)/g.width;                 // 正方形セル
+  cv.width=availW;
+  cv.height=Math.round(cell*g.height+2);   // 迷路の縦横比(1.5)に合わせた縦長キャンバス
+  pad=1;
 }
 
 // 壁を連続した線に結合して返す(グリッド単位)。短い線分を繋ぐことで
@@ -426,62 +429,28 @@ function tick(){
   g.raf=requestAnimationFrame(tick);
 }
 
-// ---- 書き出し (Python 版の to_svg 相当をブラウザで) -----------------------
-function mazeToSVG(withPath, opts){
-  opts=opts||{};
-  const print=opts.print;                     // 印刷用: 白地・黒壁・S/G ラベル
-  const g=game, w=g.width, h=g.height, c=18, p=Math.round(c*1.8);  // 余白を広めに(印刷の見切れ対策)
-  const bg=print?"#ffffff":"#0b1021";
-  const wall=print?"#111111":"#e2e8f0";
-  const wallW=print?2.4:2;
-  const W=w*c+p*2, H=h*c+p*2, L=[
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
-    `<rect width="${W}" height="${H}" fill="${bg}"/>`];
-  if(withPath){
-    const pts=g.path.map(([x,y])=>`${p+x*c+c/2},${p+y*c+c/2}`).join(" ");
-    const pcol=print?"#d11":"#38bdf8", pop=print?0.9:0.55;
-    L.push(`<polyline points="${pts}" fill="none" stroke="${pcol}" stroke-width="${(c*.32).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round" opacity="${pop}"/>`);
-  }
-  // 壁は連続線に結合してから描く(端キャップのはみ出しを防ぐ)
-  const runs=wallRuns(g);
-  for(const[x0,gy,x1]of runs.H)
-    L.push(`<line x1="${p+x0*c}" y1="${p+gy*c}" x2="${p+x1*c}" y2="${p+gy*c}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="round"/>`);
-  for(const[gx,y0,y1]of runs.V)
-    L.push(`<line x1="${p+gx*c}" y1="${p+y0*c}" x2="${p+gx*c}" y2="${p+y1*c}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="round"/>`);
-  if(print){
-    // 白黒印刷でも判別できるよう、丸+太字の S / G を描く
-    for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
-      const mx=p+cx*c+c/2, my=p+cy*c+c/2;
-      L.push(`<circle cx="${mx}" cy="${my}" r="${(c*.36).toFixed(1)}" fill="#fff" stroke="#111" stroke-width="1.6"/>`);
-      L.push(`<text x="${mx}" y="${my}" font-family="sans-serif" font-size="${(c*.6).toFixed(0)}" font-weight="700" fill="#111" text-anchor="middle" dominant-baseline="central">${ch}</text>`);
-    }
-  }else{
-    for(const[[cx,cy],col]of[[g.start,"#22c55e"],[g.goal,"#ef4444"]])
-      L.push(`<circle cx="${p+cx*c+c/2}" cy="${p+cy*c+c/2}" r="${(c*.3).toFixed(1)}" fill="${col}"/>`);
-  }
-  L.push("</svg>");
-  return L.join("\n");
+// ---- 書き出し ------------------------------------------------------------
+// 迷路の SVG(白地・黒壁)。用紙サイズは指定せず、迷路の内容ぴったりの px viewBox
+// にする(レイアウトはブラウザ任せ)。迷路グリッドは長方形(w≠h)に対応。
+function svgGeom(){
+  const c=18, M=Math.round(c*1.2), headH=Math.round(c*2.6), footH=Math.round(c*1.8);
+  const w=game.width, h=game.height;
+  return {c,M,headH,footH, ox:M, oy:M+headH, W:w*c+M*2, H:h*c+M*2+headH+footH};
 }
-// A4 縦(210×297mm)の実寸 SVG。3mm 余白・白地黒壁・迷路は幅いっぱいの正方形、
-// 下に縦の余白ができる(横幅そのまま・縦を伸ばす)。タイトル/情報を内蔵し1ページ完結。
-function mazeToA4SVG(withPath){
+function mazeSVG(withPath){
   const g=game, w=g.width, h=g.height;
-  const PW=210, PH=297, M=3;          // A4 mm ・ 3mm 余白
-  const headerH=12;                    // タイトル領域(mm)
-  const side=PW-M*2;                   // 迷路の一辺 = 印刷幅
-  const c=side/w;                      // セル(mm)
-  const ox=M, oy=M+headerH;            // 迷路の左上
-  const wallW=Math.max(0.2, c*0.13);   // 壁の太さ(mm)
+  const {c,headH,footH,ox,oy,W,H}=svgGeom();
+  const wallW=Math.max(1.6, c*0.13);
   const title=withPath?"解答":"世界一難しい迷路";
-  const nf=(v)=>v.toFixed(2);
+  const nf=v=>Math.round(v*100)/100;
   const L=[
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${PW}mm" height="${PH}mm" viewBox="0 0 ${PW} ${PH}">`,
-    `<rect width="${PW}" height="${PH}" fill="#ffffff"/>`,
-    `<text x="${PW/2}" y="${M+6}" font-family="sans-serif" font-size="5.5" font-weight="700" fill="#111" text-anchor="middle">${title}</text>`,
-    `<text x="${PW/2}" y="${M+10.5}" font-family="sans-serif" font-size="3" fill="#555" text-anchor="middle">サイズ ${w}×${w} ・ 最短解 ${g.sol}歩 ・ 難易度 ${g.score}</text>`];
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`,
+    `<rect width="${W}" height="${H}" fill="#ffffff"/>`,
+    `<text x="${W/2}" y="${nf(headH*0.55)+18}" font-family="sans-serif" font-size="${c}" font-weight="700" fill="#111" text-anchor="middle">${title}</text>`,
+    `<text x="${W/2}" y="${nf(headH*0.9)+18}" font-family="sans-serif" font-size="${nf(c*0.55)}" fill="#555" text-anchor="middle">サイズ ${w}×${h} ・ 最短解 ${g.sol}歩 ・ 難易度 ${g.score}</text>`];
   if(withPath){
     const pts=g.path.map(([x,y])=>`${nf(ox+x*c+c/2)},${nf(oy+y*c+c/2)}`).join(" ");
-    L.push(`<polyline points="${pts}" fill="none" stroke="#dd1111" stroke-width="${nf(c*0.32)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`);
+    L.push(`<polyline points="${pts}" fill="none" stroke="#dd1111" stroke-width="${nf(c*0.32)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`);
   }
   const runs=wallRuns(g);
   for(const[x0,gy,x1]of runs.H)
@@ -490,11 +459,11 @@ function mazeToA4SVG(withPath){
     L.push(`<line x1="${nf(ox+gx*c)}" y1="${nf(oy+y0*c)}" x2="${nf(ox+gx*c)}" y2="${nf(oy+y1*c)}" stroke="#111" stroke-width="${nf(wallW)}" stroke-linecap="round"/>`);
   for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
     const mx=ox+cx*c+c/2, my=oy+cy*c+c/2, r=c*0.42;
-    L.push(`<circle cx="${nf(mx)}" cy="${nf(my)}" r="${nf(r)}" fill="#fff" stroke="#111" stroke-width="${nf(Math.max(0.25,wallW))}"/>`);
+    L.push(`<circle cx="${nf(mx)}" cy="${nf(my)}" r="${nf(r)}" fill="#fff" stroke="#111" stroke-width="${nf(Math.max(1.4,wallW))}"/>`);
     L.push(`<text x="${nf(mx)}" y="${nf(my)}" font-family="sans-serif" font-size="${nf(c*0.72)}" font-weight="700" fill="#111" text-anchor="middle" dominant-baseline="central">${ch}</text>`);
   }
   if(!withPath)
-    L.push(`<text x="${PW/2}" y="${nf(oy+side+6)}" font-family="sans-serif" font-size="3.4" fill="#555" text-anchor="middle">S から G まで一筆で。壁伝い法は通じません。</text>`);
+    L.push(`<text x="${W/2}" y="${nf(oy+h*c+footH*0.7)}" font-family="sans-serif" font-size="${nf(c*0.6)}" fill="#555" text-anchor="middle">S から G まで一筆で。壁伝い法は通じません。</text>`);
   L.push("</svg>");
   return L.join("\n");
 }
@@ -503,19 +472,19 @@ function download(blob,name){
   a.href=url; a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function fname(ext){return `maze-${game.width}x${game.width}-A4-score${game.score}.${ext}`;}
+function fname(ext){return `maze-${game.width}x${game.height}-score${game.score}.${ext}`;}
 
-// SVG(文字列)を返す(A4)。SVG保存/表示で使用
-function currentSVG(){ return mazeToA4SVG(game.showHint); }
+// SVG(文字列)を返す。SVG保存/表示で使用
+function currentSVG(){ return mazeSVG(game.showHint); }
 
-// A4 SVG を白地の PNG(A4 縦)にラスタライズして blob を返す
+// SVG を白地の PNG にラスタライズして blob を返す(用紙サイズ指定なし)
 function renderPNGBlob(cb){
-  const scale=6, svg=currentSVG();          // 210×297mm を 6px/mm でラスタライズ
-  const W=210*scale, H=297*scale;
+  const svg=currentSVG(), {W,H}=svgGeom();
+  const scale=Math.min(2, 2600/Math.max(W,H));  // 長辺 ~2600px 目安、小さい迷路は2倍まで
   const img=new Image();
   img.onload=()=>{
     const cn=document.createElement("canvas");
-    cn.width=W; cn.height=H;
+    cn.width=Math.round(W*scale); cn.height=Math.round(H*scale);
     const cx=cn.getContext("2d");
     cx.fillStyle="#ffffff"; cx.fillRect(0,0,cn.width,cn.height);
     cx.drawImage(img,0,0,cn.width,cn.height);
@@ -541,12 +510,12 @@ function viewSVG(){
   if(!w) download(blob,fname("svg"));        // ブロック時はダウンロードにフォールバック
 }
 
-// 印刷用に「問題ページ」と「解答ページ」を A4 で組み立てる
+// 印刷用に「問題ページ」と「解答ページ」を組み立てる(用紙サイズはブラウザ任せ)
 function buildPrint(){
   if(!game)return;
   document.getElementById("printArea").innerHTML=
-    `<section class="sheet">${mazeToA4SVG(false)}</section>`
-   +`<section class="sheet">${mazeToA4SVG(true)}</section>`;
+    `<section class="sheet">${mazeSVG(false)}</section>`
+   +`<section class="sheet">${mazeSVG(true)}</section>`;
 }
 
 // ---- 入力 ----------------------------------------------------------------
