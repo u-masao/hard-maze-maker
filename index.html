@@ -467,6 +467,37 @@ function mazeSVG(withPath){
   L.push("</svg>");
   return L.join("\n");
 }
+// 素の迷路 SVG(タイトル/説明なし・余白最小)。SVG保存/表示用。
+// fit=true: width/height=100% + preserveAspectRatio でウィンドウに中央フィット
+//           (生SVGをタブに開いても右側に余白が出ないようにする)。
+function bareSVG(withPath, fit){
+  const g=game, w=g.width, h=g.height, c=18;
+  const M=Math.max(4, Math.round(c*0.35));   // 最小限の余白(約3mm相当)
+  const ox=M, oy=M, W=w*c+M*2, H=h*c+M*2;
+  const wallW=Math.max(1.6, c*0.13);
+  const nf=v=>Math.round(v*100)/100;
+  const dim=fit?`width="100%" height="100%" preserveAspectRatio="xMidYMid meet"`
+               :`width="${W}" height="${H}"`;
+  const L=[
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" ${dim}>`,
+    `<rect width="${W}" height="${H}" fill="#ffffff"/>`];
+  if(withPath){
+    const pts=g.path.map(([x,y])=>`${nf(ox+x*c+c/2)},${nf(oy+y*c+c/2)}`).join(" ");
+    L.push(`<polyline points="${pts}" fill="none" stroke="#dd1111" stroke-width="${nf(c*0.32)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`);
+  }
+  const runs=wallRuns(g);
+  for(const[x0,gy,x1]of runs.H)
+    L.push(`<line x1="${nf(ox+x0*c)}" y1="${nf(oy+gy*c)}" x2="${nf(ox+x1*c)}" y2="${nf(oy+gy*c)}" stroke="#111" stroke-width="${nf(wallW)}" stroke-linecap="round"/>`);
+  for(const[gx,y0,y1]of runs.V)
+    L.push(`<line x1="${nf(ox+gx*c)}" y1="${nf(oy+y0*c)}" x2="${nf(ox+gx*c)}" y2="${nf(oy+y1*c)}" stroke="#111" stroke-width="${nf(wallW)}" stroke-linecap="round"/>`);
+  for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
+    const mx=ox+cx*c+c/2, my=oy+cy*c+c/2, r=c*0.42;
+    L.push(`<circle cx="${nf(mx)}" cy="${nf(my)}" r="${nf(r)}" fill="#fff" stroke="#111" stroke-width="${nf(Math.max(1.4,wallW))}"/>`);
+    L.push(`<text x="${nf(mx)}" y="${nf(my)}" font-family="sans-serif" font-size="${nf(c*0.72)}" font-weight="700" fill="#111" text-anchor="middle" dominant-baseline="central">${ch}</text>`);
+  }
+  L.push("</svg>");
+  return L.join("\n");
+}
 function download(blob,name){
   const url=URL.createObjectURL(blob), a=document.createElement("a");
   a.href=url; a.download=name; a.click();
@@ -493,7 +524,8 @@ function renderPNGBlob(cb){
   img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
 }
 function exportPNG(){ renderPNGBlob(b=>download(b,fname("png"))); }
-function exportSVG(){ download(new Blob([currentSVG()],{type:"image/svg+xml"}),fname("svg")); }
+// SVG保存は素の迷路(タイトルなし・余白最小)。保存ファイルは実寸 px を持たせる
+function exportSVG(){ download(new Blob([bareSVG(game.showHint,false)],{type:"image/svg+xml"}),fname("svg")); }
 
 // 画像だけを別タブに表示(保存はブラウザの標準機能でどうぞ)
 function viewPNG(){
@@ -505,9 +537,10 @@ function viewPNG(){
   });
 }
 function viewSVG(){
-  const blob=new Blob([currentSVG()],{type:"image/svg+xml"});
+  // 表示用は素の迷路 + fit(ウィンドウ中央フィット。右側に余白が出ないように)
+  const blob=new Blob([bareSVG(game.showHint,true)],{type:"image/svg+xml"});
   const url=URL.createObjectURL(blob), w=window.open(url,"_blank");
-  if(!w) download(blob,fname("svg"));        // ブロック時はダウンロードにフォールバック
+  if(!w) download(new Blob([bareSVG(game.showHint,false)],{type:"image/svg+xml"}),fname("svg"));
 }
 
 // 印刷用に「問題ページ」と「解答ページ」を組み立てる(用紙サイズはブラウザ任せ)
