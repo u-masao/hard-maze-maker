@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>世界一難しい迷路 — hard-maze-maker</title>
+<style>
+  :root{
+    --bg:#0b1021; --panel:#141a30; --ink:#e2e8f0; --muted:#8ea0c4;
+    --wall:#e2e8f0; --start:#22c55e; --goal:#ef4444; --player:#facc15;
+    --trail:#38bdf8; --accent:#a78bfa; --line:#26304f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    padding:16px; gap:14px; min-height:100%;
+  }
+  h1{font-size:1.15rem; margin:0; letter-spacing:.02em; text-align:center}
+  h1 small{display:block; color:var(--muted); font-weight:400; font-size:.72rem; margin-top:4px}
+  .wrap{width:100%; max-width:640px; display:flex; flex-direction:column; gap:12px}
+  .bar{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px;
+  }
+  .bar label{font-size:.78rem; color:var(--muted); display:flex; flex-direction:column; gap:3px; align-items:flex-start}
+  select,button{
+    font:inherit; font-size:.82rem; color:var(--ink); background:#1d2542;
+    border:1px solid var(--line); border-radius:8px; padding:7px 11px; cursor:pointer;
+  }
+  button.primary{background:var(--accent); color:#151033; border-color:transparent; font-weight:600}
+  button:active{transform:translateY(1px)}
+  .stats{display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
+  .chip{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:8px 12px; font-variant-numeric:tabular-nums; min-width:74px; text-align:center;
+  }
+  .chip b{display:block; font-size:1.05rem}
+  .chip span{font-size:.66rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em}
+  .board{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:10px; display:flex; justify-content:center; touch-action:none;
+  }
+  canvas{width:100%; height:auto; image-rendering:auto; border-radius:6px}
+  .pad{display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(3,64px);
+       gap:8px; justify-content:center; margin-top:2px}
+  .pad button{font-size:1.3rem; border-radius:12px; height:100%; background:#1d2542}
+  .pad .empty{visibility:hidden}
+  .msg{min-height:1.4em; text-align:center; font-size:.9rem; color:var(--accent); font-weight:600}
+  footer{color:var(--muted); font-size:.72rem; text-align:center; line-height:1.6; max-width:560px}
+  kbd{background:#1d2542; border:1px solid var(--line); border-bottom-width:2px; border-radius:5px;
+      padding:1px 6px; font-size:.72rem}
+  @media (max-width:420px){ .pad{grid-template-columns:repeat(3,56px); grid-template-rows:repeat(3,56px)} }
+
+  /* ---- 印刷レイアウト (白地・黒壁・解答は別ページ) ---- */
+  #printArea{display:none}
+  @media print{
+    :root{color-scheme:light}
+    body{background:#fff; color:#000; padding:0; display:block}
+    body > .wrap, body > h1{display:none !important}
+    #printArea{display:block}
+    .sheet{
+      page-break-after:always; break-after:page;
+      display:flex; flex-direction:column; align-items:center;
+      justify-content:flex-start; min-height:96vh; padding:4vh 4vw 0;
+      text-align:center; color:#000;
+    }
+    .sheet:last-child{page-break-after:auto; break-after:auto}
+    .sheet h2{font-size:20pt; margin:0 0 2mm; letter-spacing:.04em}
+    .sheet .meta{font-size:9pt; color:#333; margin-bottom:4mm}
+    .sheet .meta b{color:#000}
+    .sheet .note{font-size:10pt; color:#333; margin-top:4mm}
+    .sheet svg{width:auto; height:auto; max-width:100%; max-height:82vh}
+    @page{ margin:10mm; }
+  }
+</style>
+</head>
+<body>
+  <!-- 印刷/PDF 用。画面では非表示、印刷時のみ表示される -->
+  <div id="printArea"></div>
+
+  <h1>世界一難しい迷路
+    <small>壁伝い法も行き止まり潰しも効かない — ループ入り・最長解の意地悪迷路</small>
+  </h1>
+
+  <div class="wrap">
+    <div class="bar">
+      <label>サイズ
+        <select id="size">
+          <option value="15">15 × 15</option>
+          <option value="21">21 × 21</option>
+          <option value="31" selected>31 × 31</option>
+          <option value="41">41 × 41 (鬼)</option>
+          <option value="51">51 × 51 (地獄)</option>
+          <option value="61">61 × 61 (発狂)</option>
+          <option value="81">81 × 81 (無理)</option>
+          <option value="101">101 × 101 (絶望)</option>
+          <option value="131">131 × 131 (終焉)</option>
+        </select>
+      </label>
+      <label>意地悪さ
+        <select id="braid">
+          <option value="0">0 — 完全迷路(壁伝いOK)</option>
+          <option value="0.35" selected>中 — ループ入り</option>
+          <option value="0.6">高 — ループ多め</option>
+          <option value="0.85">極 — 罠だらけ</option>
+        </select>
+      </label>
+      <label>選抜数
+        <select id="cand">
+          <option value="1">1</option>
+          <option value="30" selected>30 から最難選抜</option>
+          <option value="80">80 から最難選抜</option>
+        </select>
+      </label>
+      <button id="regen" class="primary">新しい迷路</button>
+      <button id="hint">ヒント (解を表示)</button>
+      <button id="print" class="primary">🖨 印刷 / PDF</button>
+      <button id="svg">SVG保存</button>
+      <button id="png">PNG保存</button>
+    </div>
+
+    <div class="stats">
+      <div class="chip"><b id="stTime">0.0s</b><span>time</span></div>
+      <div class="chip"><b id="stSteps">0</b><span>steps</span></div>
+      <div class="chip"><b id="stSol">–</b><span>最短解</span></div>
+      <div class="chip"><b id="stLoops">–</b><span>ループ</span></div>
+      <div class="chip"><b id="stScore">–</b><span>難易度</span></div>
+    </div>
+
+    <div class="board"><canvas id="cv" width="600" height="600"></canvas></div>
+    <div class="msg" id="msg">S(緑)から G(赤)へ。矢印キー / WASD / スワイプで移動。</div>
+
+    <div class="pad">
+      <div class="empty"></div>
+      <button data-dir="N">▲</button>
+      <div class="empty"></div>
+      <button data-dir="W">◀</button>
+      <div class="empty"></div>
+      <button data-dir="E">▶</button>
+      <div class="empty"></div>
+      <button data-dir="S">▼</button>
+      <div class="empty"></div>
+    </div>
+
+    <footer>
+      recursive backtracker で長い蛇行通路を掘り、行き止まりを繋いで<b>ループ</b>を作成。
+      グラフ<b>直径の両端</b>を入口・出口に置いて解を最長化し、複数候補から
+      難易度スコア最大の一枚を選抜しています。ループがあるため
+      <b>右手法(壁伝い)は無限ループに陥り</b>、行き止まり潰しも通用しません。
+    </footer>
+  </div>
+
+<script>
+"use strict";
+// ---- 迷路生成 (maze.py の設計を JS へ移植) --------------------------------
+const N=1,S=2,E=4,W=8, OPP={1:2,2:1,4:8,8:4}, DELTA={1:[0,-1],2:[0,1],4:[1,0],8:[-1,0]};
+
+function makeMaze(width,height,rng,braid){
+  const walls=Array.from({length:height},()=>new Array(width).fill(15));
+  const idx=(x,y)=>y*width+x;
+  const inb=(x,y)=>x>=0&&x<width&&y>=0&&y<height;
+  const carve=(x,y,d)=>{const[dx,dy]=DELTA[d],nx=x+dx,ny=y+dy;if(!inb(nx,ny))return;
+    walls[y][x]&=~d; walls[ny][nx]&=~OPP[d];};
+  const linked=(x,y,d)=>!(walls[y][x]&d);
+  const neigh=(x,y)=>{const r=[];for(const d in DELTA){if(linked(x,y,+d)){
+    const[dx,dy]=DELTA[d],nx=x+dx,ny=y+dy;if(inb(nx,ny))r.push([nx,ny]);}}return r;};
+
+  // recursive backtracker
+  let sx=(rng()*width)|0, sy=(rng()*height)|0;
+  const stack=[[sx,sy]], seen=new Uint8Array(width*height); seen[idx(sx,sy)]=1;
+  while(stack.length){
+    const[x,y]=stack[stack.length-1], opts=[];
+    for(const d in DELTA){const[dx,dy]=DELTA[d],nx=x+dx,ny=y+dy;
+      if(inb(nx,ny)&&!seen[idx(nx,ny)])opts.push([+d,nx,ny]);}
+    if(!opts.length){stack.pop();continue;}
+    const[d,nx,ny]=opts[(rng()*opts.length)|0];
+    carve(x,y,d); seen[idx(nx,ny)]=1; stack.push([nx,ny]);
+  }
+
+  // braid: 行き止まりをループ化
+  if(braid>0){
+    const ends=[];
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++)
+      if(neigh(x,y).length===1)ends.push([x,y]);
+    for(let i=ends.length-1;i>0;i--){const j=(rng()*(i+1))|0;[ends[i],ends[j]]=[ends[j],ends[i]];}
+    for(const[x,y]of ends){
+      if(neigh(x,y).length!==1)continue;
+      if(rng()>braid)continue;
+      const blocked=[];
+      for(const d in DELTA){const[dx,dy]=DELTA[d],nx=x+dx,ny=y+dy;
+        if(inb(nx,ny)&&linked(x,y,+d)===false)blocked.push([neigh(nx,ny).length,+d]);}
+      if(blocked.length){blocked.sort((a,b)=>b[0]-a[0]); carve(x,y,blocked[0][1]);}
+    }
+  }
+  return {width,height,walls,neigh,linked};
+}
+
+function bfs(m,src){
+  const dist=new Map(), key=(x,y)=>x+","+y, q=[src]; dist.set(key(...src),0);
+  let head=0;
+  while(head<q.length){const[x,y]=q[head++];
+    for(const[nx,ny]of m.neigh(x,y)){const k=key(nx,ny);
+      if(!dist.has(k)){dist.set(k,dist.get(key(x,y))+1);q.push([nx,ny]);}}}
+  return {dist,key};
+}
+function farthest(m,src){
+  const{dist,key}=bfs(m,src); let best=src,bd=-1;
+  for(const[k,d]of dist)if(d>bd){bd=d;best=k.split(",").map(Number);}
+  return[best,bd];
+}
+function solvePath(m,start,goal){
+  const prev=new Map(), key=(x,y)=>x+","+y, q=[start]; prev.set(key(...start),null);
+  let head=0;
+  while(head<q.length){const[x,y]=q[head++]; if(x===goal[0]&&y===goal[1])break;
+    for(const[nx,ny]of m.neigh(x,y)){const k=key(nx,ny);
+      if(!prev.has(k)){prev.set(k,[x,y]);q.push([nx,ny]);}}}
+  const path=[goal]; let cur=goal;
+  while(prev.get(key(...cur))){cur=prev.get(key(...cur));path.push(cur);}
+  path.reverse(); return path;
+}
+
+function buildHardest(width,height,braid,candidates,seed){
+  const master=mulberry32(seed);
+  let best=null,bestMeta=null;
+  for(let i=0;i<candidates;i++){
+    const rng=mulberry32((master()*2**32)>>>0);
+    const m=makeMaze(width,height,rng,braid);
+    const[a]=farthest(m,[0,0]);
+    const[start]=farthest(m,a);
+    const[goal]=farthest(m,start);
+    const path=solvePath(m,start,goal);
+    // loops = edges - cells + 1
+    let edges=0,cells=width*height,decisions=0;
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      const deg=m.neigh(x,y).length; edges+=deg; if(deg>=3)decisions++;}
+    edges/=2; const loops=edges-cells+1;
+    let turns=0;
+    for(let i=1;i<path.length-1;i++){
+      const[ax,ay]=path[i-1],[bx,by]=path[i],[cx,cy]=path[i+1];
+      if(bx-ax!==cx-bx||by-ay!==cy-by)turns++;}
+    const tort=turns/Math.max(1,path.length-1);
+    const score=path.length + decisions*0.8 + loops*2 + tort*path.length*0.5;
+    if(!bestMeta||score>bestMeta.score){
+      best=m; bestMeta={start,goal,path,loops,score:Math.round(score*10)/10,sol:path.length};
+    }
+  }
+  return{m:best,...bestMeta};
+}
+
+// 決定論的 PRNG
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;
+  return((t^t>>>14)>>>0)/4294967296;};}
+
+// ---- 状態 ----------------------------------------------------------------
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+let game=null, cell=0, pad=0;
+
+function newGame(){
+  const width=+document.getElementById("size").value;
+  const height=width;
+  const braid=+document.getElementById("braid").value;
+  const candidates=+document.getElementById("cand").value;
+  const seed=(Math.random()*2**32)>>>0;
+  const build=()=>{
+    const g=buildHardest(width,height,braid,candidates,seed);
+    game={...g, width, height, player:[...g.start], steps:0, t0:null,
+          trail:new Set([g.start.join(",")]), showHint:false, done:false, raf:null};
+    document.getElementById("stSol").textContent=g.sol;
+    document.getElementById("stLoops").textContent=g.loops;
+    document.getElementById("stScore").textContent=g.score;
+    document.getElementById("stSteps").textContent="0";
+    document.getElementById("stTime").textContent="0.0s";
+    document.getElementById("msg").textContent="S(緑)から G(赤)へ。矢印 / WASD / スワイプ。";
+    layout(); draw(); tick();
+  };
+  // 大きい迷路は生成に時間がかかるので「生成中…」を先に描画してから作る
+  if(width>=61){
+    document.getElementById("msg").textContent=`${width}×${width} を生成中… 🌀`;
+    setTimeout(build,20);
+  }else build();
+}
+
+function layout(){
+  const size=Math.min(600, Math.floor((document.querySelector(".board").clientWidth-20)));
+  const px=size; cv.width=px; cv.height=px;
+  cell=(px-2)/game.width; pad=1;
+}
+
+// 壁を連続した線に結合して返す(グリッド単位)。短い線分を繋ぐことで
+// 端キャップが通路にはみ出す「余分な壁」アーティファクトを防ぐ。
+function wallRuns(g){
+  const w=g.width, h=g.height, wa=g.m.walls, H=[], V=[];
+  // 水平の壁: 各グリッド線 gy (0..h) を横に走査して連続を結合
+  for(let gy=0;gy<=h;gy++){
+    let run=null;
+    for(let x=0;x<w;x++){
+      const on = gy<h ? (wa[gy][x]&N) : (wa[h-1][x]&S);
+      if(on){ if(run===null)run=x; }
+      else if(run!==null){ H.push([run,gy,x]); run=null; }
+    }
+    if(run!==null)H.push([run,gy,w]);
+  }
+  // 垂直の壁: 各グリッド線 gx (0..w) を縦に走査して連続を結合
+  for(let gx=0;gx<=w;gx++){
+    let run=null;
+    for(let y=0;y<h;y++){
+      const on = gx<w ? (wa[y][gx]&W) : (wa[y][w-1]&E);
+      if(on){ if(run===null)run=y; }
+      else if(run!==null){ V.push([gx,run,y]); run=null; }
+    }
+    if(run!==null)V.push([gx,run,h]);
+  }
+  return {H,V};
+}
+
+function draw(){
+  const g=game, w=g.width, h=g.height;
+  ctx.fillStyle=getVar("--panel"); ctx.fillRect(0,0,cv.width,cv.height);
+  // ヒント経路
+  if(g.showHint){
+    ctx.strokeStyle=getVar("--trail"); ctx.globalAlpha=.5;
+    ctx.lineWidth=cell*.34; ctx.lineJoin="round"; ctx.lineCap="round";
+    ctx.beginPath();
+    g.path.forEach(([x,y],i)=>{const cx=pad+x*cell+cell/2,cy=pad+y*cell+cell/2;
+      i?ctx.lineTo(cx,cy):ctx.moveTo(cx,cy);}); ctx.stroke(); ctx.globalAlpha=1;
+  }
+  // 足跡
+  ctx.fillStyle="rgba(250,204,21,.16)";
+  for(const k of g.trail){const[x,y]=k.split(",").map(Number);
+    ctx.fillRect(pad+x*cell+cell*.2,pad+y*cell+cell*.2,cell*.6,cell*.6);}
+  // start/goal
+  mark(g.start,getVar("--start")); mark(g.goal,getVar("--goal"));
+  // 壁 (連続線に結合してから描画。丸キャップ/接合で角もきれい)
+  const {H,V}=wallRuns(g);
+  ctx.strokeStyle=getVar("--wall"); ctx.lineWidth=Math.max(1.4,cell*.11);
+  ctx.lineCap="round"; ctx.lineJoin="round";
+  ctx.beginPath();
+  for(const[x0,gy,x1]of H){ctx.moveTo(pad+x0*cell,pad+gy*cell);ctx.lineTo(pad+x1*cell,pad+gy*cell);}
+  for(const[gx,y0,y1]of V){ctx.moveTo(pad+gx*cell,pad+y0*cell);ctx.lineTo(pad+gx*cell,pad+y1*cell);}
+  ctx.stroke();
+  // player
+  const[px,py]=g.player;
+  ctx.fillStyle=getVar("--player");
+  ctx.beginPath();
+  ctx.arc(pad+px*cell+cell/2,pad+py*cell+cell/2,cell*.32,0,7); ctx.fill();
+}
+function mark([x,y],color){ctx.fillStyle=color;
+  ctx.beginPath();ctx.arc(pad+x*cell+cell/2,pad+y*cell+cell/2,cell*.3,0,7);ctx.fill();}
+function getVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+function move(d){
+  const g=game; if(!g||g.done)return;
+  const[x,y]=g.player;
+  if(g.m.linked(x,y,d)){
+    const[dx,dy]=DELTA[d]; g.player=[x+dx,y+dy];
+    if(g.t0===null)g.t0=performance.now();
+    g.steps++; g.trail.add(g.player.join(","));
+    document.getElementById("stSteps").textContent=g.steps;
+    if(g.player[0]===g.goal[0]&&g.player[1]===g.goal[1])win();
+    draw();
+  }
+}
+function win(){
+  const g=game; g.done=true;
+  const t=((performance.now()-g.t0)/1000).toFixed(1);
+  const eff=Math.round(g.sol/g.steps*100);
+  document.getElementById("msg").innerHTML=
+    `🎉 ゴール！ ${t}s / ${g.steps}歩 (最短${g.sol}歩・効率${eff}%) — 難易度 ${g.score}`;
+}
+function tick(){
+  const g=game; if(!g)return;
+  if(g.t0!==null&&!g.done)
+    document.getElementById("stTime").textContent=((performance.now()-g.t0)/1000).toFixed(1)+"s";
+  g.raf=requestAnimationFrame(tick);
+}
+
+// ---- 書き出し (Python 版の to_svg 相当をブラウザで) -----------------------
+function mazeToSVG(withPath, opts){
+  opts=opts||{};
+  const print=opts.print;                     // 印刷用: 白地・黒壁・S/G ラベル
+  const g=game, w=g.width, h=g.height, c=18, p=Math.round(c*1.8);  // 余白を広めに(印刷の見切れ対策)
+  const bg=print?"#ffffff":"#0b1021";
+  const wall=print?"#111111":"#e2e8f0";
+  const wallW=print?2.4:2;
+  const W=w*c+p*2, H=h*c+p*2, L=[
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<rect width="${W}" height="${H}" fill="${bg}"/>`];
+  if(withPath){
+    const pts=g.path.map(([x,y])=>`${p+x*c+c/2},${p+y*c+c/2}`).join(" ");
+    const pcol=print?"#d11":"#38bdf8", pop=print?0.9:0.55;
+    L.push(`<polyline points="${pts}" fill="none" stroke="${pcol}" stroke-width="${(c*.32).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round" opacity="${pop}"/>`);
+  }
+  // 壁は連続線に結合してから描く(端キャップのはみ出しを防ぐ)
+  const runs=wallRuns(g);
+  for(const[x0,gy,x1]of runs.H)
+    L.push(`<line x1="${p+x0*c}" y1="${p+gy*c}" x2="${p+x1*c}" y2="${p+gy*c}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="round"/>`);
+  for(const[gx,y0,y1]of runs.V)
+    L.push(`<line x1="${p+gx*c}" y1="${p+y0*c}" x2="${p+gx*c}" y2="${p+y1*c}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="round"/>`);
+  if(print){
+    // 白黒印刷でも判別できるよう、丸+太字の S / G を描く
+    for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
+      const mx=p+cx*c+c/2, my=p+cy*c+c/2;
+      L.push(`<circle cx="${mx}" cy="${my}" r="${(c*.36).toFixed(1)}" fill="#fff" stroke="#111" stroke-width="1.6"/>`);
+      L.push(`<text x="${mx}" y="${my}" font-family="sans-serif" font-size="${(c*.6).toFixed(0)}" font-weight="700" fill="#111" text-anchor="middle" dominant-baseline="central">${ch}</text>`);
+    }
+  }else{
+    for(const[[cx,cy],col]of[[g.start,"#22c55e"],[g.goal,"#ef4444"]])
+      L.push(`<circle cx="${p+cx*c+c/2}" cy="${p+cy*c+c/2}" r="${(c*.3).toFixed(1)}" fill="${col}"/>`);
+  }
+  L.push("</svg>");
+  return L.join("\n");
+}
+function download(blob,name){
+  const url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function fname(ext){return `maze-${game.width}x${game.width}-score${game.score}.${ext}`;}
+
+// SVG(白背景) を白地の PNG にラスタライズしてダウンロード
+function exportPNG(){
+  const g=game, scale=2, svg=mazeToSVG(g.showHint,{print:true});
+  const c=18, W=(g.width*c+c*2), H=(g.height*c+c*2);
+  const img=new Image();
+  img.onload=()=>{
+    const cn=document.createElement("canvas");
+    cn.width=W*scale; cn.height=H*scale;
+    const cx=cn.getContext("2d");
+    cx.fillStyle="#ffffff"; cx.fillRect(0,0,cn.width,cn.height);
+    cx.drawImage(img,0,0,cn.width,cn.height);
+    cn.toBlob(b=>download(b,fname("png")),"image/png");
+  };
+  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+
+// 印刷用に「問題ページ」と「解答ページ」を組み立てる
+function buildPrint(){
+  if(!game)return;
+  const g=game;
+  const meta=`サイズ <b>${g.width}×${g.width}</b> ・ 最短解 <b>${g.sol}</b>歩 ・ `
+    +`ループ <b>${g.loops}</b> ・ 難易度 <b>${g.score}</b>`;
+  document.getElementById("printArea").innerHTML=
+    `<section class="sheet">
+       <h2>世界一難しい迷路</h2>
+       <div class="meta">${meta}</div>
+       ${mazeToSVG(false,{print:true})}
+       <div class="note">S から G まで、鉛筆で一筆書き。壁伝い法は通じません。</div>
+     </section>
+     <section class="sheet">
+       <h2>解答</h2>
+       <div class="meta">${meta}</div>
+       ${mazeToSVG(true,{print:true})}
+     </section>`;
+}
+
+// ---- 入力 ----------------------------------------------------------------
+const KEYMAP={ArrowUp:N,ArrowDown:S,ArrowRight:E,ArrowLeft:W,
+  w:N,s:S,d:E,a:W,W:N,S:S,D:E,A:W,k:N,j:S,l:E,h:W};
+addEventListener("keydown",e=>{if(e.key in KEYMAP){e.preventDefault();move(KEYMAP[e.key]);}});
+document.querySelectorAll(".pad button").forEach(b=>
+  b.addEventListener("click",()=>move({N,S,E,W}[b.dataset.dir])));
+document.getElementById("regen").addEventListener("click",newGame);
+document.getElementById("hint").addEventListener("click",()=>{
+  if(!game)return; game.showHint=!game.showHint; draw();
+  document.getElementById("msg").textContent=game.showHint?"最短解を表示中(ズル)":"がんばれ！";
+});
+["size","braid","cand"].forEach(id=>
+  document.getElementById(id).addEventListener("change",newGame));
+document.getElementById("svg").addEventListener("click",()=>{
+  if(!game)return;  // 白背景でインク節約
+  download(new Blob([mazeToSVG(game.showHint,{print:true})],{type:"image/svg+xml"}),fname("svg"));
+});
+document.getElementById("print").addEventListener("click",()=>{buildPrint(); window.print();});
+addEventListener("beforeprint",buildPrint);
+document.getElementById("png").addEventListener("click",()=>{if(game)exportPNG();});
+
+// スワイプ
+let sx=0,sy=0;
+cv.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;},{passive:true});
+cv.addEventListener("touchend",e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;
+  if(Math.abs(dx)<18&&Math.abs(dy)<18)return;
+  move(Math.abs(dx)>Math.abs(dy)?(dx>0?E:W):(dy>0?S:N));},{passive:true});
+addEventListener("resize",()=>{if(game){layout();draw();}});
+
+newGame();
+</script>
+</body>
+</html>
