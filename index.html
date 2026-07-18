@@ -54,26 +54,17 @@
       padding:1px 6px; font-size:.72rem}
   @media (max-width:420px){ .pad{grid-template-columns:repeat(3,56px); grid-template-rows:repeat(3,56px)} }
 
-  /* ---- 印刷レイアウト (白地・黒壁・解答は別ページ) ---- */
+  /* ---- 印刷レイアウト (A4 縦・全面。問題/解答の2ページ) ---- */
   #printArea{display:none}
   @media print{
     :root{color-scheme:light}
+    @page{ size:A4 portrait; margin:0; }
     body{background:#fff; color:#000; padding:0; display:block}
     body > .wrap, body > h1{display:none !important}
     #printArea{display:block}
-    .sheet{
-      page-break-after:always; break-after:page;
-      display:flex; flex-direction:column; align-items:center;
-      justify-content:flex-start; min-height:96vh; padding:4vh 4vw 0;
-      text-align:center; color:#000;
-    }
-    .sheet:last-child{page-break-after:auto; break-after:auto}
-    .sheet h2{font-size:20pt; margin:0 0 2mm; letter-spacing:.04em}
-    .sheet .meta{font-size:9pt; color:#333; margin-bottom:4mm}
-    .sheet .meta b{color:#000}
-    .sheet .note{font-size:10pt; color:#333; margin-top:4mm}
-    .sheet svg{width:auto; height:auto; max-width:100%; max-height:82vh}
-    @page{ margin:10mm; }
+    .sheet{ page-break-after:always; break-after:page; }
+    .sheet:last-child{ page-break-after:auto; break-after:auto }
+    .sheet svg{ display:block; width:210mm; height:297mm; }
   }
 </style>
 </head>
@@ -121,6 +112,7 @@
       <button id="hint">ヒント (解を表示)</button>
       <button id="print" class="primary">🖨 印刷 / PDF</button>
       <button id="pngview">PNG表示</button>
+      <button id="svgview">SVG表示</button>
       <button id="svg">SVG保存</button>
       <button id="png">PNG保存</button>
     </div>
@@ -314,6 +306,7 @@ function newGame(){
 
 function layout(){
   const size=Math.min(600, Math.floor((document.querySelector(".board").clientWidth-20)));
+  if(size<=0)return;                      // 盤面が非表示(印刷中など)のときは触らない
   const px=size; cv.width=px; cv.height=px;
   cell=(px-2)/game.width; pad=1;
 }
@@ -347,6 +340,7 @@ function wallRuns(g){
 
 function draw(){
   const g=game, w=g.width, h=g.height;
+  if(!g||cell<=0)return;                 // 盤面が非表示(印刷中など)のときは描かない
   ctx.fillStyle=getVar("--panel"); ctx.fillRect(0,0,cv.width,cv.height);
   // ヒント経路
   if(g.showHint){
@@ -442,22 +436,60 @@ function mazeToSVG(withPath, opts){
   L.push("</svg>");
   return L.join("\n");
 }
+// A4 縦(210×297mm)の実寸 SVG。3mm 余白・白地黒壁・迷路は幅いっぱいの正方形、
+// 下に縦の余白ができる(横幅そのまま・縦を伸ばす)。タイトル/情報を内蔵し1ページ完結。
+function mazeToA4SVG(withPath){
+  const g=game, w=g.width, h=g.height;
+  const PW=210, PH=297, M=3;          // A4 mm ・ 3mm 余白
+  const headerH=12;                    // タイトル領域(mm)
+  const side=PW-M*2;                   // 迷路の一辺 = 印刷幅
+  const c=side/w;                      // セル(mm)
+  const ox=M, oy=M+headerH;            // 迷路の左上
+  const wallW=Math.max(0.2, c*0.13);   // 壁の太さ(mm)
+  const title=withPath?"解答":"世界一難しい迷路";
+  const nf=(v)=>v.toFixed(2);
+  const L=[
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${PW}mm" height="${PH}mm" viewBox="0 0 ${PW} ${PH}">`,
+    `<rect width="${PW}" height="${PH}" fill="#ffffff"/>`,
+    `<text x="${PW/2}" y="${M+6}" font-family="sans-serif" font-size="5.5" font-weight="700" fill="#111" text-anchor="middle">${title}</text>`,
+    `<text x="${PW/2}" y="${M+10.5}" font-family="sans-serif" font-size="3" fill="#555" text-anchor="middle">サイズ ${w}×${w} ・ 最短解 ${g.sol}歩 ・ 難易度 ${g.score}</text>`];
+  if(withPath){
+    const pts=g.path.map(([x,y])=>`${nf(ox+x*c+c/2)},${nf(oy+y*c+c/2)}`).join(" ");
+    L.push(`<polyline points="${pts}" fill="none" stroke="#dd1111" stroke-width="${nf(c*0.32)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`);
+  }
+  const runs=wallRuns(g);
+  for(const[x0,gy,x1]of runs.H)
+    L.push(`<line x1="${nf(ox+x0*c)}" y1="${nf(oy+gy*c)}" x2="${nf(ox+x1*c)}" y2="${nf(oy+gy*c)}" stroke="#111" stroke-width="${nf(wallW)}" stroke-linecap="round"/>`);
+  for(const[gx,y0,y1]of runs.V)
+    L.push(`<line x1="${nf(ox+gx*c)}" y1="${nf(oy+y0*c)}" x2="${nf(ox+gx*c)}" y2="${nf(oy+y1*c)}" stroke="#111" stroke-width="${nf(wallW)}" stroke-linecap="round"/>`);
+  for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
+    const mx=ox+cx*c+c/2, my=oy+cy*c+c/2, r=c*0.42;
+    L.push(`<circle cx="${nf(mx)}" cy="${nf(my)}" r="${nf(r)}" fill="#fff" stroke="#111" stroke-width="${nf(Math.max(0.25,wallW))}"/>`);
+    L.push(`<text x="${nf(mx)}" y="${nf(my)}" font-family="sans-serif" font-size="${nf(c*0.72)}" font-weight="700" fill="#111" text-anchor="middle" dominant-baseline="central">${ch}</text>`);
+  }
+  if(!withPath)
+    L.push(`<text x="${PW/2}" y="${nf(oy+side+6)}" font-family="sans-serif" font-size="3.4" fill="#555" text-anchor="middle">S から G まで一筆で。壁伝い法は通じません。</text>`);
+  L.push("</svg>");
+  return L.join("\n");
+}
 function download(blob,name){
   const url=URL.createObjectURL(blob), a=document.createElement("a");
   a.href=url; a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function fname(ext){return `maze-${game.width}x${game.width}-score${game.score}.${ext}`;}
+function fname(ext){return `maze-${game.width}x${game.width}-A4-score${game.score}.${ext}`;}
 
-// SVG(白背景) を白地の PNG にラスタライズして blob を返す
+// SVG(文字列)を返す(A4)。SVG保存/表示で使用
+function currentSVG(){ return mazeToA4SVG(game.showHint); }
+
+// A4 SVG を白地の PNG(A4 縦)にラスタライズして blob を返す
 function renderPNGBlob(cb){
-  const g=game, scale=2, svg=mazeToSVG(g.showHint,{print:true});
-  const c=18, p=Math.round(c*1.8);  // mazeToSVG と同じ余白
-  const W=g.width*c+p*2, H=g.height*c+p*2;
+  const scale=6, svg=currentSVG();          // 210×297mm を 6px/mm でラスタライズ
+  const W=210*scale, H=297*scale;
   const img=new Image();
   img.onload=()=>{
     const cn=document.createElement("canvas");
-    cn.width=W*scale; cn.height=H*scale;
+    cn.width=W; cn.height=H;
     const cx=cn.getContext("2d");
     cx.fillStyle="#ffffff"; cx.fillRect(0,0,cn.width,cn.height);
     cx.drawImage(img,0,0,cn.width,cn.height);
@@ -466,8 +498,9 @@ function renderPNGBlob(cb){
   img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
 }
 function exportPNG(){ renderPNGBlob(b=>download(b,fname("png"))); }
+function exportSVG(){ download(new Blob([currentSVG()],{type:"image/svg+xml"}),fname("svg")); }
 
-// PNG だけを別タブに表示(保存はブラウザの標準機能でどうぞ)
+// 画像だけを別タブに表示(保存はブラウザの標準機能でどうぞ)
 function viewPNG(){
   const w=window.open("","_blank");  // ユーザー操作中に開く(ポップアップブロック回避)
   renderPNGBlob(b=>{
@@ -476,25 +509,18 @@ function viewPNG(){
     else download(b,fname("png"));           // ブロック時はダウンロードにフォールバック
   });
 }
+function viewSVG(){
+  const blob=new Blob([currentSVG()],{type:"image/svg+xml"});
+  const url=URL.createObjectURL(blob), w=window.open(url,"_blank");
+  if(!w) download(blob,fname("svg"));        // ブロック時はダウンロードにフォールバック
+}
 
-// 印刷用に「問題ページ」と「解答ページ」を組み立てる
+// 印刷用に「問題ページ」と「解答ページ」を A4 で組み立てる
 function buildPrint(){
   if(!game)return;
-  const g=game;
-  const meta=`サイズ <b>${g.width}×${g.width}</b> ・ 最短解 <b>${g.sol}</b>歩 ・ `
-    +`ループ <b>${g.loops}</b> ・ 難易度 <b>${g.score}</b>`;
   document.getElementById("printArea").innerHTML=
-    `<section class="sheet">
-       <h2>世界一難しい迷路</h2>
-       <div class="meta">${meta}</div>
-       ${mazeToSVG(false,{print:true})}
-       <div class="note">S から G まで、鉛筆で一筆書き。壁伝い法は通じません。</div>
-     </section>
-     <section class="sheet">
-       <h2>解答</h2>
-       <div class="meta">${meta}</div>
-       ${mazeToSVG(true,{print:true})}
-     </section>`;
+    `<section class="sheet">${mazeToA4SVG(false)}</section>`
+   +`<section class="sheet">${mazeToA4SVG(true)}</section>`;
 }
 
 // ---- 入力 ----------------------------------------------------------------
@@ -510,10 +536,8 @@ document.getElementById("hint").addEventListener("click",()=>{
 });
 ["size","braid","cand"].forEach(id=>
   document.getElementById(id).addEventListener("change",newGame));
-document.getElementById("svg").addEventListener("click",()=>{
-  if(!game)return;  // 白背景でインク節約
-  download(new Blob([mazeToSVG(game.showHint,{print:true})],{type:"image/svg+xml"}),fname("svg"));
-});
+document.getElementById("svg").addEventListener("click",()=>{if(game)exportSVG();});
+document.getElementById("svgview").addEventListener("click",()=>{if(game)viewSVG();});
 document.getElementById("print").addEventListener("click",()=>{buildPrint(); window.print();});
 addEventListener("beforeprint",buildPrint);
 document.getElementById("png").addEventListener("click",()=>{if(game)exportPNG();});
