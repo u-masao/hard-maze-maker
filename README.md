@@ -4,6 +4,8 @@
 **ブラウザだけ**で動きます — [`index.html`](index.html) を開くだけ。ビルド不要・依存ゼロ・サーバー不要の単一ファイルで、
 生成・プレイ・画像書き出しまで全部ブラウザ内（JavaScript）で完結します。
 
+**▶ 遊ぶ / 印刷する: https://u-masao.github.io/hard-maze-maker/**
+
 ![sample](examples/sample.svg)
 
 ## なにが「難しい」のか
