@@ -98,6 +98,8 @@
           <option value="81">81 × 81 (無理)</option>
           <option value="101">101 × 101 (絶望)</option>
           <option value="131">131 × 131 (終焉)</option>
+          <option value="151">151 × 151 (虚無)</option>
+          <option value="201">201 × 201 (無間)</option>
         </select>
       </label>
       <label>意地悪さ
@@ -238,14 +240,35 @@ function buildHardest(width,height,braid,candidates,seed){
     for(let y=0;y<height;y++)for(let x=0;x<width;x++){
       const deg=m.neigh(x,y).length; edges+=deg; if(deg>=3)decisions++;}
     edges/=2; const loops=edges-cells+1;
-    let turns=0;
+
+    // --- 局所: 曲がりの密度と直線の長さ ---
+    let turns=0, run=1, maxRun=1;
     for(let i=1;i<path.length-1;i++){
       const[ax,ay]=path[i-1],[bx,by]=path[i],[cx,cy]=path[i+1];
-      if(bx-ax!==cx-bx||by-ay!==cy-by)turns++;}
-    const tort=turns/Math.max(1,path.length-1);
-    const score=path.length + decisions*0.8 + loops*2 + tort*path.length*0.5;
+      if(bx-ax!==cx-bx||by-ay!==cy-by){turns++; run=1;}
+      else {run++; if(run>maxRun)maxRun=run;}
+    }
+    const tort=turns/Math.max(1,path.length-1);         // 曲がり密度(高いほど複雑)
+
+    // --- 大局: 解経路の空間的な広がり(回転半径) ---
+    let mx=0,my=0;
+    for(const[x,y]of path){mx+=x; my+=y;}
+    mx/=path.length; my/=path.length;
+    let rg2=0;
+    for(const[x,y]of path){rg2+=(x-mx)*(x-mx)+(y-my)*(y-my);}
+    const rg=Math.sqrt(rg2/path.length);
+    const spread=rg/Math.sqrt(width*width+height*height); // 0..~0.4(大きいほど紙面全体を動く)
+
+    const score=
+        path.length                     // 長い解ほど良い
+      + decisions*0.4
+      + loops*0.3                        // ループは控えめ(近道を作り解を縮めるため)
+      + spread*path.length*3.0           // 大局: 紙面を大きく動く
+      + tort*path.length*1.5             // 局所: 単純でない(よく曲がる)
+      - maxRun*2.0;                      // 局所: 長い直線(単純な動き)を減点
     if(!bestMeta||score>bestMeta.score){
-      best=m; bestMeta={start,goal,path,loops,score:Math.round(score*10)/10,sol:path.length};
+      best=m; bestMeta={start,goal,path,loops,spread:Math.round(spread*1000)/1000,
+        maxRun,tort:Math.round(tort*1000)/1000,score:Math.round(score*10)/10,sol:path.length};
     }
   }
   return{m:best,...bestMeta};
@@ -266,8 +289,11 @@ function newGame(){
   const braid=+document.getElementById("braid").value;
   const candidates=+document.getElementById("cand").value;
   const seed=(Math.random()*2**32)>>>0;
+  // 大きい迷路は候補数を自動で抑えて生成時間を約2秒以内に収める
+  const cap=Math.max(6, Math.floor(360000/(width*height)));
+  const eff=Math.min(candidates, cap);
   const build=()=>{
-    const g=buildHardest(width,height,braid,candidates,seed);
+    const g=buildHardest(width,height,braid,eff,seed);
     game={...g, width, height, player:[...g.start], steps:0, t0:null,
           trail:new Set([g.start.join(",")]), showHint:false, done:false, raf:null};
     document.getElementById("stSol").textContent=g.sol;
@@ -280,7 +306,8 @@ function newGame(){
   };
   // 大きい迷路は生成に時間がかかるので「生成中…」を先に描画してから作る
   if(width>=61){
-    document.getElementById("msg").textContent=`${width}×${width} を生成中… 🌀`;
+    const note=eff<candidates?`（候補${eff}から選抜）`:"";
+    document.getElementById("msg").textContent=`${width}×${width} を生成中… 🌀${note}`;
     setTimeout(build,20);
   }else build();
 }
