@@ -97,6 +97,7 @@
           <option value="61">61 × 61 (発狂)</option>
           <option value="81">81 × 81 (無理)</option>
           <option value="101">101 × 101 (絶望)</option>
+          <option value="131">131 × 131 (終焉)</option>
         </select>
       </label>
       <label>意地悪さ
@@ -381,7 +382,7 @@ function tick(){
 function mazeToSVG(withPath, opts){
   opts=opts||{};
   const print=opts.print;                     // 印刷用: 白地・黒壁・S/G ラベル
-  const g=game, w=g.width, h=g.height, c=18, p=c;
+  const g=game, w=g.width, h=g.height, c=18, p=Math.round(c*1.8);  // 余白を広めに(印刷の見切れ対策)
   const bg=print?"#ffffff":"#0b1021";
   const wall=print?"#111111":"#e2e8f0";
   const wallW=print?2.4:2;
