@@ -95,6 +95,8 @@
           <option value="41">41 × 41 (鬼)</option>
           <option value="51">51 × 51 (地獄)</option>
           <option value="61">61 × 61 (発狂)</option>
+          <option value="81">81 × 81 (無理)</option>
+          <option value="101">101 × 101 (絶望)</option>
         </select>
       </label>
       <label>意地悪さ
@@ -262,22 +264,56 @@ function newGame(){
   const braid=+document.getElementById("braid").value;
   const candidates=+document.getElementById("cand").value;
   const seed=(Math.random()*2**32)>>>0;
-  const g=buildHardest(width,height,braid,candidates,seed);
-  game={...g, width, height, player:[...g.start], steps:0, t0:null,
-        trail:new Set([g.start.join(",")]), showHint:false, done:false, raf:null};
-  document.getElementById("stSol").textContent=g.sol;
-  document.getElementById("stLoops").textContent=g.loops;
-  document.getElementById("stScore").textContent=g.score;
-  document.getElementById("stSteps").textContent="0";
-  document.getElementById("stTime").textContent="0.0s";
-  document.getElementById("msg").textContent="S(緑)から G(赤)へ。矢印 / WASD / スワイプ。";
-  layout(); draw(); tick();
+  const build=()=>{
+    const g=buildHardest(width,height,braid,candidates,seed);
+    game={...g, width, height, player:[...g.start], steps:0, t0:null,
+          trail:new Set([g.start.join(",")]), showHint:false, done:false, raf:null};
+    document.getElementById("stSol").textContent=g.sol;
+    document.getElementById("stLoops").textContent=g.loops;
+    document.getElementById("stScore").textContent=g.score;
+    document.getElementById("stSteps").textContent="0";
+    document.getElementById("stTime").textContent="0.0s";
+    document.getElementById("msg").textContent="S(緑)から G(赤)へ。矢印 / WASD / スワイプ。";
+    layout(); draw(); tick();
+  };
+  // 大きい迷路は生成に時間がかかるので「生成中…」を先に描画してから作る
+  if(width>=61){
+    document.getElementById("msg").textContent=`${width}×${width} を生成中… 🌀`;
+    setTimeout(build,20);
+  }else build();
 }
 
 function layout(){
   const size=Math.min(600, Math.floor((document.querySelector(".board").clientWidth-20)));
   const px=size; cv.width=px; cv.height=px;
   cell=(px-2)/game.width; pad=1;
+}
+
+// 壁を連続した線に結合して返す(グリッド単位)。短い線分を繋ぐことで
+// 端キャップが通路にはみ出す「余分な壁」アーティファクトを防ぐ。
+function wallRuns(g){
+  const w=g.width, h=g.height, wa=g.m.walls, H=[], V=[];
+  // 水平の壁: 各グリッド線 gy (0..h) を横に走査して連続を結合
+  for(let gy=0;gy<=h;gy++){
+    let run=null;
+    for(let x=0;x<w;x++){
+      const on = gy<h ? (wa[gy][x]&N) : (wa[h-1][x]&S);
+      if(on){ if(run===null)run=x; }
+      else if(run!==null){ H.push([run,gy,x]); run=null; }
+    }
+    if(run!==null)H.push([run,gy,w]);
+  }
+  // 垂直の壁: 各グリッド線 gx (0..w) を縦に走査して連続を結合
+  for(let gx=0;gx<=w;gx++){
+    let run=null;
+    for(let y=0;y<h;y++){
+      const on = gx<w ? (wa[y][gx]&W) : (wa[y][w-1]&E);
+      if(on){ if(run===null)run=y; }
+      else if(run!==null){ V.push([gx,run,y]); run=null; }
+    }
+    if(run!==null)V.push([gx,run,h]);
+  }
+  return {H,V};
 }
 
 function draw(){
@@ -297,16 +333,13 @@ function draw(){
     ctx.fillRect(pad+x*cell+cell*.2,pad+y*cell+cell*.2,cell*.6,cell*.6);}
   // start/goal
   mark(g.start,getVar("--start")); mark(g.goal,getVar("--goal"));
-  // 壁
-  ctx.strokeStyle=getVar("--wall"); ctx.lineWidth=Math.max(1.4,cell*.11); ctx.lineCap="round";
+  // 壁 (連続線に結合してから描画。丸キャップ/接合で角もきれい)
+  const {H,V}=wallRuns(g);
+  ctx.strokeStyle=getVar("--wall"); ctx.lineWidth=Math.max(1.4,cell*.11);
+  ctx.lineCap="round"; ctx.lineJoin="round";
   ctx.beginPath();
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const wl=g.m.walls[y][x], px=pad+x*cell, py=pad+y*cell;
-    if(wl&N){ctx.moveTo(px,py);ctx.lineTo(px+cell,py);}
-    if(wl&S){ctx.moveTo(px,py+cell);ctx.lineTo(px+cell,py+cell);}
-    if(wl&E){ctx.moveTo(px+cell,py);ctx.lineTo(px+cell,py+cell);}
-    if(wl&W){ctx.moveTo(px,py);ctx.lineTo(px,py+cell);}
-  }
+  for(const[x0,gy,x1]of H){ctx.moveTo(pad+x0*cell,pad+gy*cell);ctx.lineTo(pad+x1*cell,pad+gy*cell);}
+  for(const[gx,y0,y1]of V){ctx.moveTo(pad+gx*cell,pad+y0*cell);ctx.lineTo(pad+gx*cell,pad+y1*cell);}
   ctx.stroke();
   // player
   const[px,py]=g.player;
@@ -360,15 +393,12 @@ function mazeToSVG(withPath, opts){
     const pcol=print?"#d11":"#38bdf8", pop=print?0.9:0.55;
     L.push(`<polyline points="${pts}" fill="none" stroke="${pcol}" stroke-width="${(c*.32).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round" opacity="${pop}"/>`);
   }
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const wl=g.m.walls[y][x], px=p+x*c, py=p+y*c, seg=[];
-    if(wl&N)seg.push([px,py,px+c,py]);
-    if(wl&S)seg.push([px,py+c,px+c,py+c]);
-    if(wl&E)seg.push([px+c,py,px+c,py+c]);
-    if(wl&W)seg.push([px,py,px,py+c]);
-    for(const[x1,y1,x2,y2]of seg)
-      L.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="square"/>`);
-  }
+  // 壁は連続線に結合してから描く(端キャップのはみ出しを防ぐ)
+  const runs=wallRuns(g);
+  for(const[x0,gy,x1]of runs.H)
+    L.push(`<line x1="${p+x0*c}" y1="${p+gy*c}" x2="${p+x1*c}" y2="${p+gy*c}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="round"/>`);
+  for(const[gx,y0,y1]of runs.V)
+    L.push(`<line x1="${p+gx*c}" y1="${p+y0*c}" x2="${p+gx*c}" y2="${p+y1*c}" stroke="${wall}" stroke-width="${wallW}" stroke-linecap="round"/>`);
   if(print){
     // 白黒印刷でも判別できるよう、丸+太字の S / G を描く
     for(const[[cx,cy],ch]of[[g.start,"S"],[g.goal,"G"]]){
